@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "signalhub-pipeline"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["httpx==0.28.1", "certifi==2026.10.18", "pydantic==2.12.3", "SQLAlchemy==2.0.44", "psycopg[binary]==3.2.12", "APScheduler==3.11.1", "feedparser==6.0.12", "beautifulsoup4==4.14.2", "defusedxml==0.7.1"]
+[project.optional-dependencies]
+test = ["pytest==9.0.3", "PyYAML==6.0.3"]
+[project.scripts]
+signalhub = "signalhub.cli:main"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+signalhub = ["resources/*.json"]

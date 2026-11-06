@@ -1,0 +1,19 @@
+.env
+.env.*
+!.env.example
+.venv/
+.tools/
+.local/
+target/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.DS_Store
+.idea/
+*.log
+docs/evidence/private*
+
+# Python wheel builds are reproducible artifacts, not source.
+data-pipeline-python/build/
+
+ci-evidence/

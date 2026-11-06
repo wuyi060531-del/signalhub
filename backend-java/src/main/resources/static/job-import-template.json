@@ -1,0 +1,25 @@
+[
+  {
+    "kind": "job",
+    "external_id": "synthetic-template-replace-with-official-position-id",
+    "title": "[合成模板，请替换] 官方职位名称",
+    "company": "请填实际招聘企业，不猜归属",
+    "url": "https://example.com/synthetic-template",
+    "body": "合成导入模板，不是真实招聘信息。请替换为有权保存的官方完整岗位职责和要求。",
+    "country": null,
+    "city": null,
+    "employment_type": null,
+    "internship_type": null,
+    "education": null,
+    "student_required": null,
+    "graduation_year": null,
+    "start_date": null,
+    "end_date": null,
+    "days_per_week": null,
+    "duration_months": null,
+    "deadline": null,
+    "source_verified_at": null,
+    "source_verification_note": null,
+    "is_demo": true
+  }
+]

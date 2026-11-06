@@ -1,0 +1,27 @@
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${PORT:8080}
+spring:
+  web:
+    error:
+      include-message: never
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER:signalhub}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 4
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
+  jackson:
+    # Keep the existing HTTP contract, including omitted optional primitive flags.
+    use-jackson2-defaults: true
+    deserialization:
+      fail-on-unknown-properties: true
+logging:
+  level:
+    io.signalhub: INFO

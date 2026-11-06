@@ -1,0 +1,58 @@
+{
+  "note": "项目编写的合成规则样本；不来自真实招聘公告。",
+  "samples": [
+    {
+      "name": "domain-specific experience",
+      "title": "Synthetic Platform Intern",
+      "body": "Requirements；5+ years of experience in distributed storage engineering.",
+      "expected": {
+        "minimum": 5,
+        "scope": "related",
+        "review": true
+      }
+    },
+    {
+      "name": "markdown sections",
+      "title": "Synthetic Systems Intern",
+      "body": "**Required Skills and Experience:**；5+ years of experience in systems development.；**Preferred Qualifications:**；Docker",
+      "expected": {
+        "minimum": 5,
+        "scope": "related",
+        "review": true,
+        "docker": "preferred"
+      }
+    },
+    {
+      "name": "alternative degree",
+      "title": "Synthetic Research Intern",
+      "body": "Requirements；Pursuing Bachelor’s/master’s degree in Statistics/Mathematics or equivalent work experience.；Required: Java/SQL.",
+      "expected": {
+        "education": null,
+        "student": null,
+        "review": true,
+        "unparsed": true
+      }
+    },
+    {
+      "name": "minimum weekly schedule",
+      "title": "Synthetic Support Intern",
+      "body": "Internship duration: at least 6 months. Work at least 3 days per week.",
+      "expected": {
+        "days": 3,
+        "months": 6
+      }
+    },
+    {
+      "name": "experience range and bonus",
+      "title": "合成平台工程师",
+      "body": "工作经验：0-2年工作经验（拥有后端项目或实习经验者优先考虑）。",
+      "expected": {
+        "minimum": 0,
+        "maximum": 2,
+        "scope": "work",
+        "requirement": "required",
+        "internship_experience": null
+      }
+    }
+  ]
+}

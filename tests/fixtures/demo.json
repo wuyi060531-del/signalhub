@@ -1,0 +1,7 @@
+[
+ {"kind":"job","external_id":"demo-data","title":"[演示] 数据工程日常实习生","company":"示例外资企业（合成）","company_type":"foreign","country":"CN","city":"上海","url":"https://example.com/demo/data","body":"面向2027届本科生，接受本科及以上；要求 Python、SQL、Spark；熟悉 Airflow 优先；200 元/天；每周到岗3天；实习至少3个月；可转正。","deadline":"2027-03-20","is_demo":true},
+ {"kind":"job","external_id":"demo-java","title":"[演示] Java 后端校园招聘","company":"示例民营企业（合成）","company_type":"private","country":"CN","city":"杭州","url":"https://example.com/demo/java","body":"2027届，本科及以上；要求 Java、SQL、Spring Boot；Docker 和 Kafka 加分；15k–25k/月。","deadline":"2027-04-01","is_demo":true},
+ {"kind":"job","external_id":"demo-ai","title":"[演示] AI Engineer Intern","company":"Synthetic Global Lab","company_type":"foreign","country":"SG","city":"Singapore","url":"https://example.com/demo/ai","body":"Bachelor's degree. Required: Python, LLM, RAG; preferred: Docker. English required. Compensation unknown.","is_demo":true},
+ {"kind":"opportunity","external_id":"demo-overseas","title":"[演示] 国际研究暑校","company":"合成大学","country":"DE","url":"https://example.com/demo/school","body":"测试公告，不是真实申请机会。费用、资助、资格均待确认。","language":"英语要求待确认","is_demo":true},
+ {"kind":"release","external_id":"demo-release","title":"[演示] signalhub v0.1.0","company":"demo/signalhub","url":"https://example.com/demo/release","body":"合成 release notes：新增幂等 ETL、技能统计和匹配解释。","version_tag":"v0.1.0","is_demo":true}
+]

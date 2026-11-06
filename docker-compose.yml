@@ -1,0 +1,50 @@
+x-logging: &bounded-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+services:
+  db:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: signalhub
+      POSTGRES_PASSWORD: ${SIGNALHUB_COMPOSE_DB_PASSWORD:?set a unique Compose database password}
+      POSTGRES_DB: signalhub
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    mem_limit: 256m
+    logging: *bounded-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signalhub"]
+      interval: 5s
+      retries: 10
+  backend:
+    build: {context: ., dockerfile: backend-java/Dockerfile}
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/signalhub
+      DB_USER: signalhub
+      DB_PASSWORD: ${SIGNALHUB_COMPOSE_DB_PASSWORD:?set a unique Compose database password}
+      SERVER_ADDRESS: 0.0.0.0
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+    ports: ["127.0.0.1:8080:8080"]
+    mem_limit: 512m
+    logging: *bounded-logging
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health >/dev/null"]
+      interval: 10s
+      retries: 12
+  worker:
+    build: {context: ., dockerfile: data-pipeline-python/Dockerfile}
+    environment:
+      DATABASE_URL: postgresql+psycopg://signalhub@db:5432/signalhub
+      PGPASSWORD: ${SIGNALHUB_COMPOSE_DB_PASSWORD:?set a unique Compose database password}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+      AI_PAID_AUTHORIZED: "false"
+      RSS_ALLOWED_HOSTS: ${RSS_ALLOWED_HOSTS:-github.blog,www.python.org}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    mem_limit: 256m
+    logging: *bounded-logging
+    depends_on:
+      backend: {condition: service_healthy}
+volumes:
+  pgdata:

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>国内官方来源与导入 · SignalHub</title><link rel="stylesheet" href="/app.css"></head><body><main class="publication"><h1>国内官方来源与导入</h1><p><a href="/view/import">返回信息导入</a> · <a href="/view/domestic">查看值得关注</a></p><p>以下是供人工核对的官方浏览入口。本站保存的岗位请查看求职列表，当前在列状态以逐岗核验为准。SignalHub 不对这些页面批量抓取或调用内部接口。出现登录、验证码或访问限制时停止。</p><div class="table-wrap"><table><thead><tr><th>企业</th><th>官方入口</th><th>人工核对要点</th></tr></thead><tbody>
+<tr><td>腾讯</td><td><a href="https://join.qq.com/">腾讯校招</a></td><td>进入具体岗位页，核对稳定编号和岗位正文。</td></tr>
+<tr><td>阿里巴巴</td><td><a href="https://talent.alibaba.com/">集团招聘</a></td><td>入口按业务分流；逐条保留实际招聘主体，不能把集团所有岗位当作实习。</td></tr>
+<tr><td>字节跳动</td><td><a href="https://jobs.bytedance.com/campus/">校园招聘</a></td><td>按具体项目和岗位核对毕业时间。</td></tr>
+<tr><td>美团</td><td><a href="https://job.meituan.com/web/campus?hiringType=4_6">校园招聘</a></td><td>逐岗核对实习类别、技术方向和完整要求。</td></tr>
+<tr><td>京东</td><td><a href="https://campus.jd.com/">京东校招</a></td><td>从校招入口查找具体职位，按页面访问限制操作。</td></tr>
+<tr><td>百度</td><td><a href="https://talent.baidu.com/jobs/">百度校招</a></td><td>逐岗核对学历、工作地点、到岗日期和实习时长。</td></tr>
+<tr><td>网易</td><td><a href="https://campus.163.com/">网易校园招聘</a></td><td>使用浏览器核对具体职位，有保存权限时再人工导入。</td></tr>
+<tr><td>小米</td><td><a href="https://hr.xiaomi.com/website/campus.html">小米校园招聘</a></td><td>按具体职位确认招聘类别、在读要求和工作城市。</td></tr>
+<tr><td>快手</td><td><a href="https://zhaopin.kuaishou.cn/">快手招聘</a></td><td>使用浏览器核对岗位链接和申请状态。</td></tr>
+</tbody></table></div><h2>三步导入</h2><p><a href="/job-import-template.json" download>下载JSON导入模板（明确合成，不计真实覆盖）</a>。替换为完整真实官方数据并确认保存权限后才将is_demo改为false；未知字段保留null。</p><ol><li>正常打开官方具体职位，保留稳定编号、官方链接、职位名、实际企业、地点，以及完整职责和要求。受限页面只用你有权保存的文本或授权文件。</li><li>在“信息导入”粘贴JD。明确招聘类型、到岗时间才填写；未知学历、届别、薪资、时间保持空。人工核验时间需含时区，说明应写明核对的入口、职位编号、在列或关闭证据和条件。单条导入可选择“仍在列 / 关闭 / 待核验”，仅JD可见不能等同仍在列；最近在列标签仅保留7日，之后恢复历史状态未知。只粘贴链接不能声明已核验。文件支持UTF-8 CSV / JSON（2MB、1000行），未授权文件不要导入。</li><li>等解析任务成功，检查原文与资格；在档案设置方向、招聘类型、开始窗口和可实习时长，刷新匹配。重复导入使用同一来源和稳定编号；企业本土/外企分类另需官方集团证据，不按手填企业类型自动认定。</li></ol><p>人工核验时间是导入者声明，系统不会联网替你确认。原文首次存档、来源最近成功采集与岗位最近验证是不同事实。候选仍需投递前打开官方入口确认在招；系统不自动投递。</p><p>如果未来取得企业书面许可、公开文档化API或正式授权导出文件，再按限定域名、访问频率和许可范围接入。</p></main></body></html>
