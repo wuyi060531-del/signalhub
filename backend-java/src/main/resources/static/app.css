@@ -1858,6 +1858,9 @@ textarea:focus {
 .reading-explanation-link { font-size:12px; }
 .job-reading-controls { margin:20px 0; gap:16px; flex-wrap:wrap; }
 .job-reading-controls .field { min-width:200px; }
+@media (max-width: 767px) {
+  .job-reading-controls .field { min-width: 0; }
+}
 .reading-tools { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:24px; font-size:12px; }
 .reading-tools[hidden] { display:none; }
 .reading-machine-label { color:var(--text-weak); font-size:12px; display:block; margin:4px 0; }

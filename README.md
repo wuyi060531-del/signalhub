@@ -18,13 +18,13 @@ python3.12 -m venv .venv
 .venv/bin/python scripts/public_demo.py
 ```
 
-按终端打印的地址打开岗位详情，再看“数据源与任务”和“投递记录”两页。
+按终端打印的地址打开岗位详情，再看“数据源与任务”和“投递管理”两页。
 
 演示会新建一个临时数据库，使用随机口令和独立端口，里面只有项目自己写的虚构 JD 和档案，运行时不访问任何外部招聘、AI 或翻译服务（安装依赖时需要联网）。按 Ctrl+C 会清理这次的临时实例；加 `--verify-only` 则校验完就退出。更多说明见[演示步骤和隔离方式](docs/PUBLIC_DEMO.md)。
 
 ![合成数据工程实习的本地匹配详情](docs/demo-assets/matching.png)
 
-上图是一次实际运行的结果：合成档案确认了 Python、SQL 和目标城市。JD 后来加了 Spark 加分项，生成 V2，旧分数随即隐藏；重新计算得到 **84.5/100**（界面上取整显示 85）。JD 没写 2027 年春季的到岗时间，所以“招聘资格”一栏仍是“信息不足”。评分只说明条件的匹配程度，不是录用概率，合成数据也不会被标成真实在招。
+上图是合成“数据工程实习”岗位的实际运行结果：合成档案确认了 Python、SQL 和目标城市。JD 后来加了 Spark 加分项，生成 V2，旧分数随即隐藏；重新计算得到 **84.5/100**（界面上取整显示 85）。JD 没写 2027 年春季的到岗时间，所以“招聘资格”一栏仍是“信息不足”。评分只说明条件的匹配程度，不是录用概率，合成数据也不会被标成真实在招。
 
 ## 架构
 
@@ -73,7 +73,7 @@ stateDiagram-v2
 - 本地翻译是可选项，用 Argos 英中模型和 CTranslate2 在 CPU 上离线推理。没有配置时，页面显示英文原文。演示不加载模型，也不做任何推理调用。
 - 通过的测试数量、依赖版本、容器和远程 CI 覆盖的范围见[验收记录](docs/PUBLIC_ACCEPTANCE.md)，事务边界和源码入口见[架构说明](docs/ARCHITECTURE.md)。
 
-[合成投递页面](docs/demo-assets/applications.png) · [源码阅读路线](docs/PORTFOLIO_LEARNING.md) · [第三方声明](docs/THIRD_PARTY_NOTICES.md)
+[合成投递页面：已收藏与已投递均为本地记录](docs/demo-assets/applications.png) · [源码阅读路线](docs/PORTFOLIO_LEARNING.md) · [第三方声明](docs/THIRD_PARTY_NOTICES.md)
 
 ## 许可证
 

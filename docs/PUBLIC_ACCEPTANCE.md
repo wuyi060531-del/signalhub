@@ -2,14 +2,31 @@
 
 这里记录实际跑过的检查和结果。输入全部是合成或测试数据，使用新建的 PostgreSQL 集群、独立数据库和回环端口。依赖下载和漏洞索引查询只用到了软件包的名称和版本。测试过程中没有启动真实的岗位采集、付费 LLM 或离线翻译模型。
 
-## 最新提交的 CI
+## Worker 租约修复基线的 CI
 
-最新提交 `84edc18` 的 [GitHub Actions](https://github.com/wuyi060531-del/signalhub/actions/runs/42326750779) 成功，包含两个任务：
+基线提交 `84edc18` 的 [GitHub Actions](https://github.com/wuyi060531-del/signalhub/actions/runs/42326750779) 成功，包含两个任务：
 
 - `test`：Python 293 项测试通过，另有 26 组真实回环 HTTP 集成检查通过。
 - `container-test`：容器构建和运行检查通过。
 
 这次提交修复了 Worker 的写入隔离：入库写入前会锁定任务行并检查租约，租约丢失时返回 `superseded`，旧 Worker 不会再覆盖新的结果（`pipeline.py` 的 `TaskLease`，`test_pipeline.py` 新增了对应的测试）。
+
+## PR #1 本机验收（2026-11-07）
+
+macOS arm64、Temurin 21.0.12.1、Maven 3.9.9、Python 3.12.14、Node 24.22.1、PostgreSQL 17.6、Chrome 156。Java、Python 和 HTTP 检查依次使用新建的 `signalhub_pr1_test`（PostgreSQL 55468，HTTP 18086）；演示另建 `signalhub_demo_test`（PostgreSQL 55435，HTTP 18085）。只监听 `127.0.0.1`，使用临时凭据和合成数据；没有加载正式环境配置，也没有访问外部招聘服务、真实 AI 或翻译服务。
+
+| 命令 | 本机实测结果 |
+| --- | --- |
+| `bash scripts/check.sh` | Java 93 项、Python 293 项通过，0 失败/跳过；12 个规则/Mock 评估样本和 6 项部署静态检查执行完毕。Mock 的类别与相关性各有 1 个误判；未调用真实模型 |
+| `node --test tests/*.test.cjs` | 17 通过，0 失败/跳过 |
+| `bash scripts/mvn.sh -o -B -ntp -f backend-java/pom.xml -DskipTests package` | 打包成功；测试由上面的检查单独执行 |
+| `python scripts/integration_smoke.py` | 26 组真实 HTTP 检查通过，0 失败/跳过；含合成投递历史及禁用 AI 的降级 |
+| `python scripts/public_demo.py --verify-only` | 1 次完整演示通过，0 失败/跳过：Flyway V1–V12、导入去重、V2 与旧分失效、重算 84.5、资格信息不足、两步本地投递历史；AI 为 disabled、翻译为 unavailable |
+| Chrome 390×844 | 国内岗位、外企岗位、岗位详情、数据源与任务、收藏与投递共 5 页通过；每页 `scrollWidth / clientWidth` 都是 390 / 390，未出现未处理 JS 异常 |
+
+国内与外企列表用真实导入队列各补入一条虚构岗位，通过本机 API 录入虚构企业分类，实际核对两类列表都能显示相应合成岗位。修复前两页的筛选控件使整页宽度达到 404px；修复仅允许窄屏的岗位筛选控件在网格内收缩。详情、任务和投递页面也在修复后重测。
+
+[匹配截图](demo-assets/matching.png)和[投递截图](demo-assets/applications.png)都在 1380×900 的临时 Chrome 会话中从真实演示后端拍摄。匹配表的到岗窗口按日期分隔，来源未知时显示“未明确”；投递看板显示虚构岗位的“已收藏”和“已投递”，都是本地状态。截图不含个人账号、私人档案或本机路径。未重跑本机 Docker 或真机浏览器。
 
 ## 依赖与兼容性
 
