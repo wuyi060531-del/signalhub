@@ -2,6 +2,8 @@ import json
 import logging
 from typing import Any
 from collections.abc import Iterable
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from sqlalchemy import text
 from pydantic import ValidationError
@@ -26,10 +28,46 @@ def dump(value):
 def execute(conn, sql, **params):
     return conn.execute(text(sql),params)
 
+
+TASK_LEASE_SECONDS = 15 * 60
+
+
+class TaskLeaseLost(Exception):
+    """The claimed attempt no longer owns the task."""
+
+
+@dataclass(frozen=True)
+class TaskLease:
+    task_id: int
+    attempt: int
+
+    def require_current(self, conn):
+        # Lock first, then check expiry with wall time. The reaper cannot take over
+        # between this check and the writes committed by the same transaction.
+        owned = execute(conn, """
+            WITH locked AS MATERIALIZED (
+                SELECT state, attempts, started_at FROM task_requests
+                WHERE id=:id FOR UPDATE
+            )
+            SELECT 1 FROM locked WHERE state='running' AND attempts=:attempt
+                AND started_at >= clock_timestamp() - :seconds * interval '1 second'
+        """, id=self.task_id, attempt=self.attempt, seconds=TASK_LEASE_SECONDS).scalar()
+        if owned is None:
+            raise TaskLeaseLost()
+
+
 class Pipeline:
-    def __init__(self, engine, fetcher=None):
+    def __init__(self, engine, fetcher=None, *, lease: TaskLease | None = None):
         self.engine = engine
         self.fetcher = fetcher
+        self.lease = lease
+
+    @contextmanager
+    def _write(self):
+        with self.engine.begin() as conn:
+            if self.lease is not None:
+                self.lease.require_current(conn)
+            yield conn
 
     def source(self, source_id):
         with self.engine.connect() as conn:
@@ -39,7 +77,7 @@ class Pipeline:
     def ingest_one(self, source, raw):
         external_id = str(raw.get('external_id','')) if isinstance(raw,dict) else ''
         original = raw.get('_raw',raw) if isinstance(raw,dict) else raw
-        with self.engine.begin() as conn:
+        with self._write() as conn:
             raw_id = execute(conn,'''INSERT INTO raw_records(source_id,external_id,raw_hash,body)
                 VALUES (:source,:ext,:hash,CAST(:body AS jsonb)) ON CONFLICT(source_id,external_id,raw_hash)
                 DO UPDATE SET raw_hash=excluded.raw_hash RETURNING id''',source=source['id'],ext=external_id,hash=stable_hash(original),body=dump(original)).scalar_one()
@@ -48,7 +86,7 @@ class Pipeline:
         payload = content(item)
         new_hash = stable_hash(payload)
         canonical = (f"demo:{source['id']}:" if item.is_demo else '') + item.kind + ':' + (canonical_url(item.url) if item.url else f"source:{source['id']}:{external_id}")
-        with self.engine.begin() as conn:
+        with self._write() as conn:
             # 同一来源标识和同一 canonical URL 都串行化，避免并发创建/版本号竞争。
             execute(conn,'SELECT pg_advisory_xact_lock(hashtext(:key))',key=f"source:{source['id']}:{external_id}")
             execute(conn,'SELECT pg_advisory_xact_lock(hashtext(:key))',key=canonical)
@@ -111,7 +149,7 @@ class Pipeline:
             raise ValueError('离线重解析必须显式提供存档记录')
         source = self.source(source_id)
         mode='archive_reparse' if not refresh_source else 'collect' if records is None else 'import'
-        with self.engine.begin() as conn:
+        with self._write() as conn:
             run_id = execute(conn,'INSERT INTO collection_runs(source_id,mode) VALUES (:id,:mode) RETURNING id',id=source_id,mode=mode).scalar_one()
         counters = dict(collected=0,parsed=0,failed=0,deduplicated=0,updated=0,inserted=0)
         # 导入完成后可直接打开已保存实体；去重和部分失败也保留成功项。
@@ -140,6 +178,8 @@ class Pipeline:
                     counters[result] += 1
                     if import_items is not None:
                         import_items[item_id] = None
+                except TaskLeaseLost:
+                    raise
                 except Exception as exc:
                     counters['failed'] += 1
                     if isinstance(exc,(OperationalError,InterfaceError)):raise
@@ -153,6 +193,8 @@ class Pipeline:
                     errors.append(issue)
             if errors: state = 'partial'
             if not_modified: state = 'not_modified'
+        except TaskLeaseLost:
+            raise
         except Exception as exc:
             state = 'failed'
             retryable=isinstance(exc,(OperationalError,InterfaceError))
@@ -163,7 +205,7 @@ class Pipeline:
             # Some adapters fetch lazily while the records are being consumed.
             if owned_fetcher is not None:
                 owned_fetcher.client.close()
-        with self.engine.begin() as conn:
+        with self._write() as conn:
             execute(conn,'''UPDATE collection_runs SET state=:state,ended_at=now(),collected=:collected,parsed=:parsed,failed=:failed,
                 deduplicated=:deduplicated,updated=:updated,inserted=:inserted,errors=CAST(:errors AS jsonb) WHERE id=:id''',**counters,state=state,errors=dump(errors),id=run_id)
             if refresh_source and state in ('success','not_modified'):

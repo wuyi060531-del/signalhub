@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 from sqlalchemy import text
 from signalhub.pipeline import Pipeline
@@ -221,6 +222,121 @@ def test_expired_worker_exception_cannot_requeue_completed_new_lease(db,monkeypa
         assert old.result()['state']=='superseded'
     assert scalar(db,'SELECT state FROM task_requests')=='done'
     assert scalar(db,'SELECT error FROM task_requests') is None
+
+
+@pytest.mark.parametrize("pause_at", ["fetch", "normalize", "finish"])
+def test_expired_collect_cannot_change_new_attempt_data(db, monkeypatch, pause_at):
+    from signalhub import pipeline
+
+    paused, resume = Event(), Event()
+    initial = {**RAW, "body": "Required: Python.", "is_demo": True}
+    stale = {**initial, "body": "Required: Python and Java."}
+    current = {**initial, "body": "Required: Python and SQL."}
+    old_response = httpx.Response(200, headers={"ETag": "old", "Last-Modified": "old"})
+    new_response = httpx.Response(200, headers={"ETag": "new", "Last-Modified": "new"})
+    with db.begin() as conn:
+        source = conn.execute(text(
+            "INSERT INTO sources(name,adapter,enabled) VALUES ('synthetic-lease','github',true) RETURNING id"
+        )).scalar_one()
+    assert Pipeline(db).run(source, [initial])["inserted"] == 1
+    with db.begin() as conn:
+        task_id = conn.execute(text(
+            "INSERT INTO task_requests(task_type,source_id,payload) VALUES ('collect',:source,'{}') RETURNING id"
+        ), {"source": source}).scalar_one()
+
+    def pause():
+        paused.set()
+        assert resume.wait(15)
+
+    def old_records():
+        # Commit a legitimate duplicate while the first attempt still owns the lease.
+        yield initial
+        pause()
+        raise ValueError("synthetic late fetch error")
+
+    class SyntheticAdapter:
+        def fetch(self, config, fetcher, headers):
+            if paused.is_set():
+                return [current], new_response, False
+            if pause_at == "fetch":
+                pause()
+            records = old_records() if pause_at == "finish" else [stale]
+            return records, old_response, False
+
+    normalize = pipeline.normalize
+
+    def normalize_with_pause(raw):
+        if pause_at == "normalize" and raw["body"] == stale["body"]:
+            pause()
+        return normalize(raw)
+
+    monkeypatch.setitem(pipeline.ADAPTERS, "github", SyntheticAdapter)
+    monkeypatch.setattr(pipeline, "normalize", normalize_with_pause)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        old = pool.submit(Worker(db).tick)
+        try:
+            assert paused.wait(5)
+            with db.begin() as conn:
+                assert conn.execute(text("SELECT attempts FROM task_requests")).scalar_one() == 1
+                conn.execute(text("UPDATE task_requests SET started_at=now()-interval '16 minutes'"))
+                old_run = conn.execute(text("""
+                    UPDATE collection_runs SET started_at=now()-interval '16 minutes'
+                    WHERE state='running' RETURNING id
+                """)).scalar_one()
+            result = Worker(db).tick()
+            assert result["updated"] == 1
+            last_success = scalar(db, f"SELECT last_success FROM sources WHERE id={source}")
+        finally:
+            resume.set()
+        assert old.result(timeout=5) == {"state": "superseded", "task_id": task_id}
+
+    with db.connect() as conn:
+        assert conn.execute(text("SELECT version,payload->>'body' FROM items")).one() == (2, current["body"])
+        assert conn.execute(text("SELECT version,payload->>'body' FROM item_versions ORDER BY version")).all() == [
+            (1, initial["body"]), (2, current["body"]),
+        ]
+        assert conn.execute(text("""
+            SELECT i.version,r.body->>'body' FROM item_sources s
+            JOIN items i ON s.item_id=i.id JOIN raw_records r ON r.id=s.raw_id
+        """)).one() == (2, current["body"])
+        assert conn.execute(text("""
+            SELECT state,attempts,result,error FROM task_requests WHERE id=:id
+        """), {"id": task_id}).one() == ("done", 2, result, None)
+        assert conn.execute(text("""
+            SELECT state,collected,updated FROM collection_runs WHERE id IN (:old,:new) ORDER BY id
+        """), {"old": old_run, "new": result["run_id"]}).all() == [
+            ("interrupted", 0, 0), ("success", 1, 1),
+        ]
+        assert conn.execute(text("""
+            SELECT status,etag,last_modified,last_success FROM sources WHERE id=:id
+        """), {"id": source}).one() == ("verified", "new", "new", last_success)
+        assert conn.execute(text("SELECT split_part(dedup_key,':',3) FROM alerts")).scalars().all() == ["2"]
+        raw_count = 3 if pause_at == "normalize" else 2
+        assert conn.execute(text("SELECT count(*) FROM raw_records")).scalar_one() == raw_count
+
+
+def test_expired_collect_stops_writing_before_any_takeover(db, monkeypatch):
+    from signalhub import pipeline
+
+    class ExpiringAdapter:
+        def fetch(self, config, fetcher, headers):
+            with db.begin() as conn:
+                conn.execute(text("UPDATE task_requests SET started_at=now()-interval '16 minutes'"))
+            return [{**RAW, "is_demo": True}], httpx.Response(200), False
+
+    with db.begin() as conn:
+        source = conn.execute(text(
+            "INSERT INTO sources(name,adapter,enabled) VALUES ('synthetic-expiry','github',true) RETURNING id"
+        )).scalar_one()
+        task_id = conn.execute(text(
+            "INSERT INTO task_requests(task_type,source_id,payload) VALUES ('collect',:source,'{}') RETURNING id"
+        ), {"source": source}).scalar_one()
+    monkeypatch.setitem(pipeline.ADAPTERS, "github", ExpiringAdapter)
+    assert Worker(db).tick() == {"state": "superseded", "task_id": task_id}
+    assert scalar(db, "SELECT state FROM task_requests") == "running"
+    assert scalar(db, "SELECT count(*) FROM raw_records") == 0
+    assert scalar(db, "SELECT count(*) FROM items") == 0
+    assert scalar(db, "SELECT state FROM collection_runs") == "running"
 
 
 def test_transient_database_failure_retries_idempotently(db,monkeypatch):

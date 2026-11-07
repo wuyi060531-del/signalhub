@@ -54,6 +54,8 @@ Item kind区分job/opportunity/release；企业归属/HQ/所有制与岗位count
 
 [Worker](../data-pipeline-python/src/signalhub/worker.py)领取后提交避免HTTP期间锁整张队列；15分钟租约、最多3次，失败不无界循环。Pipeline返回partial也显示task失败。HTTP有公开目标/IP绑定、重试/限流/大小限制，RSS另需域名许可。
 
+队列采集与导入的每个写入事务先锁定任务行，再检查 running、attempt 和租约时限。原文、规范数据、版本、变化提醒、采集运行和来源状态都受此保护；任务结果和失败重试也使用同一检查。已提交的原文与规范记录保留，接管后的重放仍依赖原有去重逻辑。请求网络和解析正文时不持有任务行锁。
+
 [BusinessService](../backend-java/src/main/java/io/signalhub/BusinessService.java)的 refresh 事务以咨询锁串行。规则引擎按岗位版本、档案更新时间、算法修订和企业核验修订重用有效匹配，重算过期项。随后匹配各领域订阅并对提醒去重；每60秒由独立BusinessScheduler调用事务代理，避免同类调用绕过事务。刷新仍扫描候选项并评估订阅，处理量随岗位和订阅数增加。
 
 [MatchingEngine](../backend-java/src/main/java/io/signalhub/MatchingEngine.java)三态硬条件独立于权重；软匹配按已配置维度归一化，不把缺信息判不符合，不把未填技能认作不会。薪资只比较同币种同周期。
