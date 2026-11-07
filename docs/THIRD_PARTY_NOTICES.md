@@ -20,7 +20,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## 依赖与数据范围
 
-项目通过 Maven 和 Python 安装依赖，项目自己的许可证（尚未选定）不覆盖这些第三方组件。当前依赖的包元数据中，许可证包括 Apache-2.0、MIT、BSD、PSF 等，也有 psycopg / psycopg-binary 的 LGPL-3.0-only、certifi 的 MPL-2.0，以及部分 Java 依赖的 EPL、EDL、LGPL 或带 Classpath Exception 的 GPL 选项。具体以对应版本的上游 LICENSE / NOTICE 和双许可条款为准。
+项目通过 Maven 和 Python 安装依赖，项目自己的 [MIT 许可证](../LICENSE) 不覆盖这些第三方组件。当前依赖的包元数据中，许可证包括 Apache-2.0、MIT、BSD、PSF 等，也有 psycopg / psycopg-binary 的 LGPL-3.0-only、certifi 的 MPL-2.0，以及部分 Java 依赖的 EPL、EDL、LGPL 或带 Classpath Exception 的 GPL 选项。具体以对应版本的上游 LICENSE / NOTICE 和双许可条款为准。
 
 仓库不附带依赖的二进制文件。如果以后要分发 JAR、镜像或 wheel，需要按实际内容重新核对声明、许可证和相应的源代码义务。
 
