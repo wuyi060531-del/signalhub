@@ -168,6 +168,15 @@ function displayValues(value) {
     return formatDate(value);
   return value;
 }
+// 资格表里的值可能是字符串、数组或对象：显示成可读文字，而不是原始 JSON。
+function readableValue(value) {
+  if (value == null) return "";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (Array.isArray(value)) return value.map(readableValue).filter((v) => v !== "").join("、");
+  if (typeof value === "object")
+    return Object.entries(value).map(([k, v]) => k + "：" + readableValue(v)).join("；");
+  return String(value);
+}
 function parseArray(value) {
   try {
     const result = typeof value === "string" ? JSON.parse(value) : value;
@@ -2366,7 +2375,7 @@ async function detail() {
       }
       if (result.qualifications?.length) {
         matches.append(node("h3", "逐项招聘资格"), table(["条件", "保存的来源值", "档案值", "结论与依据"],result.qualifications.map(check=>[
-          check.label, check.sourceValue==null?"未明确":JSON.stringify(check.sourceValue),check.profileValue==null?"未填写":JSON.stringify(check.profileValue),
+          check.label, readableValue(check.sourceValue)||"未明确",readableValue(check.profileValue)||"未填写",
           append(node("div"),badge(({confirmed:"eligible",unconfirmed:"insufficient_information",conflict:"not_eligible",not_applicable:"unknown"}[check.status])),node("p",check.reason),evidenceDisclosure(check.evidence)),
         ])));
       }
