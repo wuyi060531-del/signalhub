@@ -1,12 +1,14 @@
 # SignalHub｜本地职业情报工作台
 
-招聘信息会过期，JD 会更新，而“技能对得上”并不代表满足申请资格。SignalHub 把官方链接、原文和历史版本保存在本机，用可解释规则筛选机会，再跟踪收藏、投递进度和提醒。主要业务在没有 AI Key 的情况下可运行。
+招聘信息会过期，JD 会更新，而“技能对得上”也不代表满足申请资格。SignalHub 把官方链接、JD 原文和历史版本存在本机，用可解释的规则筛选岗位，再跟踪收藏、投递进度和提醒。不配置 AI Key 也能完整使用主要功能。
 
-这是 **GitHub 源码展示候选**。SignalHub 面向本机单用户，默认只监听回环地址，启用 Host 校验、CSRF 和 CSP。公网账户认证和多用户隔离尚未实现。正式 V1.0 仍需完成连续 72 小时稳定性验证。
+它面向本机单用户：默认只监听回环地址，带 Host 校验、CSRF 和 CSP。目前没有账号认证和多用户隔离，不要直接暴露到公网。V1.0 要求的连续 72 小时稳定性验证还没有完成。
 
-## 运行一条合成 JD
+项目在 AI 辅助下完成。
 
-准备 Python 3.12、JDK 21、Maven 3.9 和 PostgreSQL 17（推荐使用 17 系列最新安全补丁）。将 `java`、`mvn`、`pg_ctl` 和 `initdb` 放进 PATH，或配置 `JAVA_HOME` 和 `PG_BIN`。
+## 跑一条合成 JD
+
+需要 Python 3.12、JDK 21、Maven 3.9 和 PostgreSQL 17（建议用最新的 17 系列补丁版本）。把 `java`、`mvn`、`pg_ctl`、`initdb` 放进 PATH，或者设置 `JAVA_HOME` 和 `PG_BIN`。
 
 ```sh
 python3.12 -m venv .venv
@@ -16,13 +18,15 @@ python3.12 -m venv .venv
 .venv/bin/python scripts/public_demo.py
 ```
 
-按终端给出的地址打开详情，再看“数据源与任务”和“投递记录”。演示使用新建临时库、随机口令和独立端口，只有项目编写的虚构 JD 与档案。依赖安装需要网络；演示运行不调用外部招聘、AI 或翻译服务。Ctrl+C 清理本次临时实例；加 `--verify-only` 则在校验完后退出。详见[演示步骤和隔离说明](docs/PUBLIC_DEMO.md)。
+按终端打印的地址打开岗位详情，再看“数据源与任务”和“投递记录”两页。
+
+演示会新建一个临时数据库，使用随机口令和独立端口，里面只有项目自己写的虚构 JD 和档案，运行时不访问任何外部招聘、AI 或翻译服务（安装依赖时需要联网）。按 Ctrl+C 会清理这次的临时实例；加 `--verify-only` 则校验完就退出。更多说明见[演示步骤和隔离方式](docs/PUBLIC_DEMO.md)。
 
 ![合成数据工程实习的本地匹配详情](docs/demo-assets/matching.png)
 
-在实测案例中，合成档案确认了 Python、SQL 与目标城市，JD 增加 Spark 加分项后生成 V2，旧分数暂时隐藏。重新计算得到 **84.5/100**（界面主数字取整为 85）；JD 没写 2027 年春季的到岗日期，因此资格仍为“信息不足”。评分解释列出规则贡献和待核验项，不能用来推断录用概率。合成状态也不会被标为真实在招。
+上图是一次实际运行的结果：合成档案确认了 Python、SQL 和目标城市。JD 后来加了 Spark 加分项，生成 V2，旧分数随即隐藏；重新计算得到 **84.5/100**（界面上取整显示 85）。JD 没写 2027 年春季的到岗时间，所以“招聘资格”一栏仍是“信息不足”。评分只说明条件的匹配程度，不是录用概率，合成数据也不会被标成真实在招。
 
-## 架构与数据
+## 架构
 
 ```mermaid
 flowchart LR
@@ -36,6 +40,8 @@ flowchart LR
     P -. 可选 .-> A[AI Provider / 本地翻译]
 ```
 
+Java 负责页面、API、规则匹配和投递记录，并把采集任务写进 `task_requests` 队列；Python Worker 领取任务，完成抓取、清洗和入库。两边只通过同一个 PostgreSQL 交换数据。
+
 ```mermaid
 stateDiagram-v2
     [*] --> pending: Java 验证并入队
@@ -45,20 +51,30 @@ stateDiagram-v2
     running --> failed: 业务失败或重试耗尽
 ```
 
-| 数据 | 设计 |
+| 表 | 作用 |
 |---|---|
-| `raw_records` / `items` / `item_versions` | 原文先落库，规范化实体和版本同事务；来源标识、规范 URL、唯一约束和事务锁控制重复。 |
-| `task_requests` | `FOR UPDATE SKIP LOCKED` 领取；15 分钟租约与 attempts 防止旧 Worker 覆盖结果；最多三次，允许幂等重放。 |
-| `user_profiles` / `employer_reviews` / `match_results` | 岗位版本、档案更新时间、算法修订、企业核验修订任一变化，旧评分不再读出；刷新时只重算变化项。 |
-| `job_applications` / `application_history` | 本地收藏与投递状态历史；不会向雇主发送材料。 |
-| `reading_translation_jobs` / `reading_translations` | 译文按原文哈希和模型修订隔离；原文保留，核验译文优先。 |
+| `raw_records` / `items` / `item_versions` | 先保存原文，再在同一事务里写规范化实体和版本。来源标识、规范化 URL、唯一约束和事务锁用来防重复。 |
+| `task_requests` | 用 `FOR UPDATE SKIP LOCKED` 领取任务，15 分钟租约加 `attempts` 防止旧 Worker 覆盖新结果；最多重试 3 次，重放是幂等的。 |
+| `user_profiles` / `employer_reviews` / `match_results` | 岗位版本、档案更新时间、算法版本、企业核验版本只要有一个变了，旧评分就不再展示；刷新时只重算变了的部分。 |
+| `job_applications` / `application_history` | 本地的收藏和投递状态历史，不会向雇主发送任何材料。 |
+| `reading_translation_jobs` / `reading_translations` | 译文按原文哈希和模型版本隔离，原文始终保留，人工核验过的译文优先。 |
 
-Flyway V1–V12 是唯一建表和迁移入口。GitHub Releases、Greenhouse、Ashby、SmartRecruiters、Lever 和 RSS/Atom 适配器与人工 JD/CSV/JSON 导入共用管道。公开接口可访问不等于允许转载正文；存档中有一条岗位也不等于它仍在招。企业归属依核验证据，工作地点单独判断；未知字段不会补猜。截止日期当前按上海日历日展示，不能代替精确时区截止时刻。
+表结构只通过 Flyway V1–V12 创建和迁移。数据来源有 GitHub Releases、Greenhouse、Ashby、SmartRecruiters、Lever、RSS/Atom，以及手动导入的 JD/CSV/JSON，它们共用同一条处理管道。
 
-## AI、测试和交付边界
+几条数据上的约定：
+- 接口能公开访问，不等于允许转载正文。
+- 归档里有一条岗位，不等于它现在还在招。
+- 企业归属以核验证据为准，工作地点单独判断，未知字段不会猜测补全。
+- 截止日期按上海时区的日历日显示，不是精确到时刻的截止时间。
 
-- **规则匹配**由 Java 执行。**可选 LLM**由 Python 调用，默认关闭，输出需经过 schema 和原文证据校验。**Mock** 用固定响应验证接口和降级。**本地机器翻译**可选用 Argos 英中模型和 CTranslate2 在 CPU 离线推理，未配置时仍显示英文原文。演示无模型、无推理调用。
-- [独立快照验收](docs/PUBLIC_ACCEPTANCE.md)列出实际通过数、依赖版本与容器、远程 CI 的执行范围。[架构和事务边界](docs/ARCHITECTURE.md)提供源码入口。
-- [合成投递页面](docs/demo-assets/applications.png) · [寒假源码阅读与练习路线](docs/PORTFOLIO_LEARNING.md) · [第三方声明](docs/THIRD_PARTY_NOTICES.md)
+## AI 与测试
 
-仓库由 AI 辅助建设。个人技术贡献以本人独立复现、提交和讲解为依据。本候选的项目许可证由所有者在公开前确定。
+- 规则匹配由 Java 完成。可选的 LLM 由 Python 调用，默认关闭，输出要通过 schema 校验和原文证据校验。Mock 模式用固定响应测试接口和降级流程。
+- 本地翻译是可选项，用 Argos 英中模型和 CTranslate2 在 CPU 上离线推理。没有配置时，页面显示英文原文。演示不加载模型，也不做任何推理调用。
+- 通过的测试数量、依赖版本、容器和远程 CI 覆盖的范围见[验收记录](docs/PUBLIC_ACCEPTANCE.md)，事务边界和源码入口见[架构说明](docs/ARCHITECTURE.md)。
+
+[合成投递页面](docs/demo-assets/applications.png) · [源码阅读路线](docs/PORTFOLIO_LEARNING.md) · [第三方声明](docs/THIRD_PARTY_NOTICES.md)
+
+## 许可证
+
+尚未选择许可证，在选定之前不授予任何使用、修改或分发权限。第三方组件的许可见[第三方声明](docs/THIRD_PARTY_NOTICES.md)。
