@@ -211,6 +211,10 @@ class Pipeline:
             if refresh_source and state in ('success','not_modified'):
                 execute(conn,'''UPDATE sources SET last_success=now(),status=CASE WHEN adapter='manual' THEN status ELSE 'verified' END,
                     etag=coalesce(:etag,etag),last_modified=coalesce(:modified,last_modified) WHERE id=:id''',id=source_id,etag=response.headers.get('etag') if response else None,modified=response.headers.get('last-modified') if response else None)
+            elif refresh_source and state == 'partial' and source['adapter'] != 'manual':
+                # 来源已响应，只是个别记录被拒绝：不算“暂不可用”。也不宣称新的成功、不保存缓存校验值，
+                # 下次仍完整拉取以重试被拒绝的记录；仅解除此前故障留下的“暂不可用”。
+                execute(conn,"UPDATE sources SET status=CASE WHEN status='unavailable' THEN 'unverified' ELSE status END WHERE id=:id",id=source_id)
             elif refresh_source and source['adapter'] != 'manual': execute(conn,"UPDATE sources SET status='unavailable' WHERE id=:id",id=source_id)
         if errors:
             # 每次运行仅一条摘要，最多三份调用位置；不按每条坏记录刷屏。

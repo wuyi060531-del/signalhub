@@ -534,3 +534,26 @@ def test_github_first_page_validator_does_not_hide_later_release_changes(db):
     assert scalar(db,'SELECT count(*) FROM items')==101
     assert scalar(db,'SELECT count(*) FROM item_versions')==102
     assert scalar(db,'SELECT count(*) FROM alerts')==1
+
+
+def test_partial_collect_does_not_mark_reachable_source_unavailable(db):
+    # 来源已正常响应、仅个别岗位被校验拒绝时，不能把整个来源标成“暂不可用”。
+    with db.begin() as c:
+        source=c.execute(text("INSERT INTO sources(name,adapter,enabled,status,etag,config) VALUES ('synthetic-partial','greenhouse',true,'verified','historical','{\"board\":\"synthetic\"}') RETURNING id")).scalar_one()
+    def job(identifier,title):
+        return dict(id=identifier,title=title,content='要求 Python',absolute_url=f'https://example.com/jobs/{identifier}',location={'name':'上海'})
+    class Board:
+        def get(self,url,headers):
+            return httpx.Response(200,json={'jobs':[job(1,'数据工程实习'),job(2,'x'*501)]},headers={'etag':'new'})
+    def source_row():
+        with db.connect() as c:return c.execute(text('SELECT status,etag,last_success FROM sources WHERE id=:id'),{'id':source}).one()
+    result=Pipeline(db,Board()).run(source)
+    assert result['state']=='partial' and result['parsed']==1 and result['failed']==1
+    status,etag,last_success=source_row()
+    # 快照不完整：不宣称新的成功，也不保存缓存校验值，下次会重新拉取被拒绝的岗位。
+    assert status=='verified' and etag=='historical' and last_success is None
+    # 此前因故障留下的“暂不可用”，在来源再次响应后应解除，回到待验证。
+    with db.begin() as c:c.execute(text("UPDATE sources SET status='unavailable' WHERE id=:id"),{'id':source})
+    assert Pipeline(db,Board()).run(source)['state']=='partial'
+    assert source_row().status=='unverified'
+    assert scalar(db,f"SELECT state FROM collection_runs WHERE source_id={source} ORDER BY id DESC LIMIT 1")=='partial'
