@@ -8,7 +8,12 @@ const start = source.indexOf('const HISTORY_FIELDS');
 const end = source.indexOf('function applicationHistoryView(');
 assert.ok(start > 0 && end > start, '投递历史的纯函数应存在');
 const sandbox = {};
-vm.runInNewContext(source.slice(start, end) + ';this.historyChanges = historyChanges; this.historyEntries = historyEntries;', sandbox);
+// historyTime 依赖页面里真实的 fullTime 定义，一并截取，保证测的是同一份格式化配置。
+const timeStart = source.indexOf('const fullTime');
+const timeEnd = source.indexOf('function formatTime(');
+assert.ok(timeStart > 0 && timeEnd > timeStart, 'fullTime 应存在');
+vm.runInNewContext(source.slice(timeStart, timeEnd) + source.slice(start, end) +
+  ';this.historyChanges = historyChanges; this.historyEntries = historyEntries; this.historyTime = historyTime;', sandbox);
 // 沙箱里创建的数组和这里不是同一个领域，直接 deepStrictEqual 会误判，所以先经 JSON 规范化。
 const historyEntries = (rows, show) => JSON.parse(JSON.stringify(sandbox.historyEntries(rows, show)));
 // 与页面一致的展示函数，换成最简单的可断言形式。
@@ -72,4 +77,18 @@ test('缺少 snapshot 的异常行不会抛错', () => {
   const entries = historyEntries([{id: 1, created_at: null, snapshot: null}, {id: 2, created_at: null}], show);
   assert.equal(entries.length, 2);
   assert.deepEqual(entries.map(e => e.changes), [[], []]);
+});
+
+test('历史时间带年份和秒数，只差一年或几秒的时间不会显示成同样的文字', () => {
+  const {historyTime} = sandbox;
+  assert.equal(historyTime('2026-11-02T02:00:00Z'), '2026/11/02 10:00:00', '按北京时间显示完整年月日时分秒');
+  const base = historyTime('2026-11-02T02:00:00Z');
+  assert.notEqual(historyTime('2027-11-02T02:00:00Z'), base, '不同年份的同月同日');
+  assert.notEqual(historyTime('2026-11-02T02:00:30Z'), base, '只差 30 秒');
+  assert.equal(historyTime('2026-11-02T10:00:00+08:00'), base, '同一时刻的不同写法显示一致');
+});
+
+test('历史时间遇到空值或无法解析的值显示破折号，不抛错', () => {
+  const {historyTime} = sandbox;
+  for (const bad of [null, undefined, '', 'not-a-date']) assert.equal(historyTime(bad), '—');
 });

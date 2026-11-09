@@ -1752,6 +1752,11 @@ const HISTORY_FIELDS = [
   ["notes", "备注"],
 ];
 const HISTORY_TIME_FIELDS = new Set(["appliedAt", "assessmentAt", "interviewAt"]);
+// 历史里的时间必须能区分年份和秒数，所以复用 fullTime，而不是只到分钟、没有年份的 formatTime。
+function historyTime(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? fullTime.format(date) : "—";
+}
 function historyChanges(previous, current, show) {
   const blank = (v) => v == null || v === "";
   return HISTORY_FIELDS.flatMap(([key, label]) => {
@@ -1773,11 +1778,11 @@ function historyEntries(rows, show) {
 function applicationHistoryView(rows) {
   if (!rows.length)
     return emptyState("还没有保存过进度", "在“编辑进度与下一步”里保存一次，这里会按时间列出每次变化。", true);
-  const show = (key, v) => key === "status" ? labels[v] || v : HISTORY_TIME_FIELDS.has(key) ? formatTime(v) : String(v);
+  const show = (key, v) => key === "status" ? labels[v] || v : HISTORY_TIME_FIELDS.has(key) ? historyTime(v) : String(v);
   const list = node("ol", "", "history-timeline");
   list.setAttribute("aria-label", "投递历史，最新在前");
   historyEntries(rows, show).forEach((e) => {
-    const li = node("li", "", "history-entry"), time = node("time", formatTime(e.createdAt), "history-time");
+    const li = node("li", "", "history-entry"), time = node("time", historyTime(e.createdAt), "history-time");
     time.dateTime = e.createdAt;
     li.append(time, node("strong", e.first ? "创建记录" : e.changes.length ? "更新记录" : "已保存，内容没有变化", "history-title"));
     if (e.changes.length) {
