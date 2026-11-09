@@ -415,6 +415,23 @@ function card(title, description, action) {
     );
   return c;
 }
+// 列表的页码只在“最新一次请求成功”时才提交：失败时页码不动（界面仍是旧数据，页码必须与之一致），
+// 过期请求（被更新的请求取代）的结果和错误都丢弃，旧请求不会覆盖新结果，也不会弹出多余的错误。
+function createPagedLoader() {
+  let page = 0, latest = 0;
+  return {
+    get page() { return page; },
+    async load(target, fetchPage) {
+      const token = ++latest;
+      let result;
+      try { result = await fetchPage(target); }
+      catch (e) { if (token !== latest) return null; throw e; }
+      if (token !== latest) return null;
+      page = target;
+      return result;
+    },
+  };
+}
 // 操作发生在长列表下方时，页面顶部的提示和结果都在视口之外，用户会以为“点了没反应”。
 function outOfView(rect, viewportHeight) {
   return rect.bottom <= 0 || rect.top >= viewportHeight;
@@ -1081,7 +1098,7 @@ async function listing() {
   const advanced = node("details", "", "advanced-filters");
   append(advanced, node("summary", "搜索与更多筛选"), f);
   append(content, advanced, out);
-  let page = 0, loadRevision = 0;
+  const pager = createPagedLoader();
   let scope, sorting, eligibility, jobView, summary, coverageNote;
   const scopeNames = {mainland: "大陆实习与求职机会", domestic: "中国本土企业岗位", foreign: "在华外企岗位", unclassified: "企业待分类 · 大陆", all: "全部存档岗位"};
   if (isJob) {
@@ -1096,7 +1113,7 @@ async function listing() {
     controls.append(jobView.parentElement, scope.parentElement, sorting.parentElement, eligibility.parentElement);
     content.insertBefore(node("p", "默认展示目标技术岗位：资格未知、明确不符合、招聘类型未知均保留真实标签，可逐条核验。实习线索排除已知硬性冲突；严格视图还要求本科在读条件明确、全部已知资格通过。任何视图都不保证现在仍在招聘或可以在 2027 年春季入职。", "muted"), advanced);
     content.insertBefore(controls, advanced);
-    for (const control of [scope, sorting, eligibility, jobView]) control.onchange = () => { page = 0; load().catch(e => msg(e.message, true)); };
+    for (const control of [scope, sorting, eligibility, jobView]) control.onchange = () => { load(0).catch(e => msg(e.message, true)); };
     const categories = node("div", "", "guidance");
     categories.append(node("p", "真实岗位分类：本土企业大陆 " + summary.domestic.jobs + " · 在华外企 " + summary.foreign.jobs + " · 大陆企业待分类 " + summary.unclassified.jobs + "。另有 " + summary.secondaryMainlandListed + " 条主地点海外 / 未知、附加大陆记录待核验；" + summary.explicitNonMainland + " 条国家代码 CN 但地点明确港澳台的岗位，均保留于全部存档。", "muted"));
     categories.append(actionGroup(jobScopeLink("大陆企业待分类", "unclassified", "all"), jobScopeLink("全球全部存档（含海外 / 未知）", "all", "all")));
@@ -1108,8 +1125,7 @@ async function listing() {
     f.reset();
     if (eligibility) eligibility.value = "";
     if (nextView) jobView.value = nextView;
-    page = 0;
-    await load();
+    await load(0);
   };
   // 翻页、清除筛选后若用户已滚过结果顶部，回到结果开头并把焦点交给标题，否则会停在新一页的底部。
   const revealResults = panel => {
@@ -1119,13 +1135,13 @@ async function listing() {
     if (heading) { heading.tabIndex = -1; heading.focus({preventScroll: true}); }
   };
   let pending = 0;
-  const load = async () => {
+  const load = async target => {
     pending++; out.classList.add("is-loading"); out.setAttribute("aria-busy", "true");
-    try { await render(); }
+    try { await render(target); }
     finally { if (!--pending) { out.classList.remove("is-loading"); out.removeAttribute("aria-busy"); } }
   };
-  const render = async () => {
-    const revision = ++loadRevision, args = Object.fromEntries(new FormData(f));
+  const render = async (target = pager.page) => {
+    const args = Object.fromEntries(new FormData(f));
     if (isJob) {
       args.domain = scope.value; args.sort = sorting.value; args.view = jobView.value;
       if (eligibility.value === "hide") args.hideIneligible = "true";
@@ -1134,12 +1150,13 @@ async function listing() {
       args.kind = section === "technology" ? "release" : "opportunity";
       args.sort = "updated_desc";
     }
-    args.page = page;
-    const [r, coverage] = await Promise.all([
+    args.page = target;
+    const loaded = await pager.load(target, () => Promise.all([
       api("/items?" + query(args)),
       isJob ? api("/job-coverage?" + new URLSearchParams({domain: args.domain})) : Promise.resolve(null),
-    ]);
-    if (revision !== loadRevision) return;
+    ]));
+    if (!loaded) return; // 已被更新的请求取代
+    const [r, coverage] = loaded, page = pager.page;
     out.replaceChildren();
     const name = isJob ? scopeNames[scope.value] : section === "technology" ? "技术情报" : "海外机会";
     if (isJob) {
@@ -1189,13 +1206,13 @@ async function listing() {
     } else r.items.forEach((item, index) => panel.append(itemCard(item, false, page * 20 + index + 1)));
     const actions = actionGroup();
     if (r.total) actions.append(button("清除筛选", () => clearFilters(), "btn-secondary"));
-    if (page > 0) actions.append(button("上一页", async () => { page--; await load(); }, "btn-secondary"));
-    if ((page + 1) * 20 < r.total) actions.append(button("下一页", async () => { page++; await load(); }, "btn-secondary"));
+    if (page > 0) actions.append(button("上一页", () => load(page - 1), "btn-secondary"));
+    if ((page + 1) * 20 < r.total) actions.append(button("下一页", () => load(page + 1), "btn-secondary"));
     panel.append(actions); out.append(panel); revealResults(panel);
   };
   f.onsubmit = async e => {
-    e.preventDefault(); page = 0;
-    try { await load(); } catch (e) { msg(e.message, true); }
+    e.preventDefault();
+    try { await load(0); } catch (e) { msg(e.message, true); }
   };
   await load();
 }
