@@ -1742,6 +1742,59 @@ function applicationForm(id, existing = {}, onSaved) {
   );
   return f;
 }
+// 投递历史：把相邻两次保存的快照比较成“改了什么”，而不是把原始 JSON 展示给用户。
+const HISTORY_FIELDS = [
+  ["status", "状态"],
+  ["nextAction", "下一步"],
+  ["appliedAt", "投递时间"],
+  ["assessmentAt", "笔试时间"],
+  ["interviewAt", "面试时间"],
+  ["notes", "备注"],
+];
+const HISTORY_TIME_FIELDS = new Set(["appliedAt", "assessmentAt", "interviewAt"]);
+// 历史里的时间必须能区分年份和秒数，所以复用 fullTime，而不是只到分钟、没有年份的 formatTime。
+function historyTime(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? fullTime.format(date) : "—";
+}
+function historyChanges(previous, current, show) {
+  const blank = (v) => v == null || v === "";
+  return HISTORY_FIELDS.flatMap(([key, label]) => {
+    const before = previous ? previous[key] : null, after = current[key];
+    const same = HISTORY_TIME_FIELDS.has(key) && !blank(before) && !blank(after)
+      ? Date.parse(before) === Date.parse(after) // 同一时刻的不同写法不算变化
+      : (blank(before) && blank(after)) || before === after;
+    if (same) return [];
+    return [{key, label, before: blank(before) ? "" : show(key, before), after: blank(after) ? "" : show(key, after)}];
+  });
+}
+function historyEntries(rows, show) {
+  const sorted = [...rows].sort((a, b) => b.id - a.id);
+  return sorted.map((row, i) => {
+    const previous = sorted[i + 1] ? sorted[i + 1].snapshot || {} : null;
+    return {id: row.id, createdAt: row.created_at, first: !previous, changes: historyChanges(previous, row.snapshot || {}, show)};
+  });
+}
+function applicationHistoryView(rows) {
+  if (!rows.length)
+    return emptyState("还没有保存过进度", "在“编辑进度与下一步”里保存一次，这里会按时间列出每次变化。", true);
+  const show = (key, v) => key === "status" ? labels[v] || v : HISTORY_TIME_FIELDS.has(key) ? historyTime(v) : String(v);
+  const list = node("ol", "", "history-timeline");
+  list.setAttribute("aria-label", "投递历史，最新在前");
+  historyEntries(rows, show).forEach((e) => {
+    const li = node("li", "", "history-entry"), time = node("time", historyTime(e.createdAt), "history-time");
+    time.dateTime = e.createdAt;
+    li.append(time, node("strong", e.first ? "创建记录" : e.changes.length ? "更新记录" : "已保存，内容没有变化", "history-title"));
+    if (e.changes.length) {
+      const changes = node("ul", "", "history-changes");
+      e.changes.forEach((c) => changes.append(node("li", c.label + "：" +
+        (e.first ? c.after : (c.before || "未填写") + " → " + (c.after || "已清空")))));
+      li.append(changes);
+    }
+    list.append(li);
+  });
+  return append(node("div", "", "history-panel"), node("p", "共 " + rows.length + " 次保存，最新在前", "muted"), list);
+}
 async function applications() {
   content.replaceChildren();
   let rows = await api("/applications");
@@ -1788,7 +1841,7 @@ async function applications() {
         entry.append(edit, button("投递历史", async () => {
           const value = await api("/applications/" + row.item_id + "/history");
           if (!historyPanel) {historyPanel = node("div"); entry.append(historyPanel);}
-          historyPanel.replaceChildren(pre(value));
+          historyPanel.replaceChildren(applicationHistoryView(value));
         }, "btn-text"));
         col.append(entry);
       });
