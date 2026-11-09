@@ -1672,6 +1672,54 @@ a:hover {
   font-size: 20px;
   line-height: 28px;
 }
+.history-panel {
+  margin-top: var(--space-3);
+}
+.history-timeline {
+  list-style: none;
+  margin: var(--space-3) 0 0 var(--space-2);
+  padding: 0 0 0 var(--space-5);
+  border-left: 2px solid var(--line);
+}
+.history-entry {
+  position: relative;
+  padding-bottom: var(--space-4);
+}
+.history-entry:last-child {
+  padding-bottom: 0;
+}
+.history-entry::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--space-5) - 6px);
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neutral-dot);
+}
+.history-entry:first-child::before {
+  background: var(--info);
+}
+.history-time {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: var(--font-label);
+  font-variant-numeric: tabular-nums;
+}
+.history-title {
+  display: block;
+  margin-top: 2px;
+}
+.history-changes {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+}
+.history-changes li {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
 .settings-row {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
