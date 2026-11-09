@@ -415,12 +415,22 @@ function card(title, description, action) {
     );
   return c;
 }
+// 操作发生在长列表下方时，页面顶部的提示和结果都在视口之外，用户会以为“点了没反应”。
+function outOfView(rect, viewportHeight) {
+  return rect.bottom <= 0 || rect.top >= viewportHeight;
+}
+function pastTop(rect) {
+  return rect.top < 0;
+}
 function msg(text, error = false) {
   const n = document.querySelector("#notice");
   n.hidden = false;
   n.className = "notice" + (error ? " error" : "");
   n.setAttribute("role", error ? "alert" : "status");
   n.replaceChildren(node("span", text));
+  // 错误必须被看见；成功提示不打断用户当前位置。
+  if (error && outOfView(n.getBoundingClientRect(), window.innerHeight))
+    n.scrollIntoView({block: "nearest"});
 }
 async function api(path, method = "GET", data) {
   const headers = {};
@@ -1101,7 +1111,20 @@ async function listing() {
     page = 0;
     await load();
   };
+  // 翻页、清除筛选后若用户已滚过结果顶部，回到结果开头并把焦点交给标题，否则会停在新一页的底部。
+  const revealResults = panel => {
+    if (!pastTop(out.getBoundingClientRect())) return;
+    out.scrollIntoView({block: "start"});
+    const heading = panel.querySelector("h2");
+    if (heading) { heading.tabIndex = -1; heading.focus({preventScroll: true}); }
+  };
+  let pending = 0;
   const load = async () => {
+    pending++; out.classList.add("is-loading"); out.setAttribute("aria-busy", "true");
+    try { await render(); }
+    finally { if (!--pending) { out.classList.remove("is-loading"); out.removeAttribute("aria-busy"); } }
+  };
+  const render = async () => {
     const revision = ++loadRevision, args = Object.fromEntries(new FormData(f));
     if (isJob) {
       args.domain = scope.value; args.sort = sorting.value; args.view = jobView.value;
@@ -1168,7 +1191,7 @@ async function listing() {
     if (r.total) actions.append(button("清除筛选", () => clearFilters(), "btn-secondary"));
     if (page > 0) actions.append(button("上一页", async () => { page--; await load(); }, "btn-secondary"));
     if ((page + 1) * 20 < r.total) actions.append(button("下一页", async () => { page++; await load(); }, "btn-secondary"));
-    panel.append(actions); out.append(panel);
+    panel.append(actions); out.append(panel); revealResults(panel);
   };
   f.onsubmit = async e => {
     e.preventDefault(); page = 0;
