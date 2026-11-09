@@ -2017,3 +2017,14 @@ textarea:focus {
     animation: none;
   }
 }
+
+/* 列表正在刷新：超过 250ms 才变淡，本地后端很快时不会闪烁。 */
+.is-loading {
+  opacity: 0.55;
+  transition: opacity 0.15s ease 0.25s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-loading {
+    transition: none;
+  }
+}
