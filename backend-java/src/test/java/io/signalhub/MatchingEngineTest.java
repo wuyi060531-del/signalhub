@@ -29,6 +29,46 @@ class MatchingEngineTest {
         assertThat(engine.match(j,p).hardStatus()).isEqualTo("insufficient_information");
     }
 
+    private Map<String,Object> cityProfile(String city) {var p=profile();p.put("cities",List.of(city));p.put("hardCity",true);return p;}
+    private Map<String,Object> cityJob(String city) {var j=job();j.put("city",city);return j;}
+
+    @Test void explicitlyEquivalentCityNamesMatchUnderHardCity() {
+        double baseline=engine.match(job(),profile()).score();
+        for(String target:List.of("重庆","重庆市","Chongqing","chongqing"))
+            for(String city:List.of("重庆","重庆市","Chongqing"," chongqing ")) {
+                var r=engine.match(cityJob(city),cityProfile(target));
+                assertThat(r.hardStatus()).as("档案 %s 对岗位 %s",target,city).isEqualTo("eligible");
+                assertThat(r.components().get("city")).as("档案 %s 对岗位 %s",target,city).isEqualTo(1.0);
+                assertThat(r.score()).as("档案 %s 对岗位 %s",target,city).isEqualTo(baseline);
+            }
+        for(String city:List.of("成都","成都市","Chengdu"))
+            assertThat(engine.match(cityJob(city),cityProfile("成都")).hardStatus()).as("成都 %s",city).isEqualTo("eligible");
+        assertThat(engine.match(cityJob("成都"),cityProfile("Chengdu")).hardStatus()).isEqualTo("eligible");
+        // 次要地点中的等价写法同样有效。
+        var j=cityJob("Singapore");j.put("locations",List.of(Map.of("country","CN","city","Chongqing")));
+        assertThat(engine.match(j,cityProfile("重庆市")).hardStatus()).isEqualTo("eligible");
+    }
+
+    @Test void differentCitiesStillConflictAndFreeTextIsNeverInferred() {
+        for(String city:List.of("成都","Chengdu","成都市","北京","Beijing"))
+            assertThat(engine.match(cityJob(city),cityProfile("重庆")).hardStatus()).as("重庆 对 %s",city).isEqualTo("not_eligible");
+        assertThat(engine.match(cityJob("北京"),cityProfile("上海")).hardStatus()).isEqualTo("not_eligible");
+        // 含多个城市或附加说明的自由文本不能被当作明确的单一城市。
+        for(String text:List.of("Chongqing, Chengdu","重庆/成都","Chongqing, China","重庆或成都"))
+            for(String target:List.of("重庆","成都")) {
+                var r=engine.match(cityJob(text),cityProfile(target));
+                assertThat(r.components().get("city")).as("%s 对 %s",target,text).isEqualTo(0.0);
+                assertThat(r.hardStatus()).as("%s 对 %s",target,text).isNotEqualTo("eligible");
+            }
+    }
+
+    @Test void unknownPlaceUnderHardCityStaysUnconfirmedNotConflict() {
+        var j=job();j.remove("city");
+        assertThat(engine.match(j,cityProfile("重庆")).hardStatus()).isEqualTo("insufficient_information");
+        j.put("locations",List.of(Map.of("name","城市待公布")));
+        assertThat(engine.match(j,cityProfile("Chongqing")).hardStatus()).isEqualTo("insufficient_information");
+    }
+
     @Test void requiredGroupDoesNotDemandEveryAlternativeAndIndependentSqlRemainsRequired() {
         var j=job();j.put("skills",List.of(Map.of("name","Python","requirement","mentioned"),Map.of("name","Java","requirement","mentioned"),Map.of("name","SQL","requirement","required"),Map.of("name","Spark","requirement","preferred")));
         j.put("skill_groups",List.of(Map.of("names",List.of("Python","Java"),"minimum",1,"requirement","required","evidence","Python或Java任选一项")));
