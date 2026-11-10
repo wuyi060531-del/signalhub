@@ -1,15 +1,33 @@
-name: probe-smartrecruiters (temporary, read-only)
+name: probe-job-pages (temporary, read-only)
 on:
   push:
     branches: ['verify/smartrecruiters-bosch-probe']
-    paths: ['scripts/probe_smartrecruiters.py', 'scripts/probe_lever.py', '.github/workflows/probe-smartrecruiters.yml']
+    paths: ['scripts/probe_job_pages.py', '.github/workflows/probe-smartrecruiters.yml']
 permissions:
   contents: read
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/probe_smartrecruiters.py BoschGroup CN 0 Chengdu Chongqing
-      - run: python3 scripts/probe_lever.py xsolla
+      - run: |
+          python3 scripts/probe_job_pages.py \
+            "https://jobs.sap.com/job/Shanghai-SAP-China-iXp-Intern-Full-Stack-AI-Native-Developer-Intern-201203/1374914033/" \
+            "https://jobs.sap.com/en/jobs/744000157039749/sap-china-ixp-intern-full-stack-ai-native-developer-intern-shanghai/" \
+            "https://jobs.sap.com/job/XiAn-Shaanxi-SAP-China-iXp-Intern-AI-Agent-Software-Developer-Xi'an-710077/1255890801/" \
+            "https://jobs.sap.com/job/XiAn-Shaanxi-SAP-China-iXp-Intern-Developer-for-HANA-Cloud-Xi&apos;an-710077/1259500401/" \
+            "https://jobs.sap.com/job/Chengdu-Application-Developer-Intern-Chengdu-610041/1291217901/" \
+            "https://jobs.sap.com/job/Chengdu-Student-Training-and-Rotation-Program-Intern-(Developer-Role)-2027-Graduates-Chengdu-610041/1245883801/" \
+            "https://jobs.sap.com/en/jobs/744000154915809/sap-student-training-rotation-program-vtstar-intern-it-services-2028-graduates/" \
+            "https://intel.wd1.myworkdayjobs.com/en-US/External/job/AI-Software-Engineer-Intern_JR0280388" \
+            "https://intel.wd1.myworkdayjobs.com/en-US/External/job/AI-Software-Engineer-Intern_JR0288692" \
+            "https://intel.wd1.myworkdayjobs.com/en-US/External/job/AI-Application-Development-Intern_JR0288222-1" \
+            "https://intel.wd1.myworkdayjobs.com/en-US/External/job/Software-Engineer---Intern--Undergrad_JR0283071" \
+            "https://intel.wd1.myworkdayjobs.com/en-US/External/job/AI-ML-Software-App-Development-Intern_JR0286946" \
+            "https://jobs.siemens.com/en_US/externaljobs/JobDetail/504749" \
+            "https://jobs.siemens.com/en_US/externaljobs/JobDetail/506107" \
+            "https://jobs.siemens.com/en_US/externaljobs/JobDetail/504742" \
+            "https://jobs.siemens.com/en_US/externaljobs/JobDetail/505597" \
+            "https://jobs.siemens.com/nl_NL/externaljobs/JobDetail/514602" \
+            "https://jobs.siemens.com/en_US/externaljobs/JobDetail/522415"
