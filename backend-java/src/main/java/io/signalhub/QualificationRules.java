@@ -11,7 +11,9 @@ final class QualificationRules {
         if(item.get("locations") instanceof List<?> places)for(Object value:places) {String c=Json.string(Json.map(value),"city");if(c!=null)result.add(c);}
         return result;
     }
-    static boolean cityMatch(List<String> targets,List<String> locations) {return targets.stream().anyMatch(x->locations.stream().anyMatch(y->norm(x).equals(norm(y))));}
+    // 明确等价的城市写法（重庆/重庆市/Chongqing）视为同一城市；其余仍按原有规范化全等比较，不做推断。
+    private static String cityKey(String s) {String city=CityNames.canonical(s);return city!=null?city:norm(s);}
+    static boolean cityMatch(List<String> targets,List<String> locations) {return targets.stream().anyMatch(x->locations.stream().anyMatch(y->cityKey(x).equals(cityKey(y))));}
     static Evaluation evaluate(Map<String,Object> item,Map<String,Object> profile) {
         var checks=new ArrayList<Check>();
         List<String> employment=Json.strings(profile.get("employmentTypes"));
