@@ -85,6 +85,17 @@ def main():
         result['q_search'][keyword] = {'totalFound': data.get('totalFound'), 'postings': [
             {'title': p.get('name'), 'city': (p.get('location') or {}).get('city'), 'type': (p.get('typeOfEmployment') or {}).get('id'),
              'releasedDate': p.get('releasedDate')} for p in (data.get('content') or [])[:40]]}
+    # 目标城市的公开岗位标题（city 过滤由接口完成）。
+    result['city_postings'] = {}
+    for city in sys.argv[4:]:
+        status, body = get(f"{ROOT}{board}/postings?{urllib.parse.urlencode({'destination': 'PUBLIC', 'limit': 100, 'country': country, 'city': city})}")
+        if status != 200:
+            result['city_postings'][city] = {'error': status}
+            continue
+        data = json.loads(body)
+        result['city_postings'][city] = {'totalFound': data.get('totalFound'), 'postings': [
+            {'title': p.get('name'), 'type': (p.get('typeOfEmployment') or {}).get('id'), 'releasedDate': p.get('releasedDate')}
+            for p in (data.get('content') or [])]}
     # 详情字段抽样：优先实习岗位，只记录字段是否存在，不保存正文。
     checks = []
     for p in (intern or postings)[:sample]:
