@@ -1,10 +1,18 @@
 # SignalHub｜本地职业情报工作台
 
+> Local job-intelligence workbench: a Java 21 / Spring Boot service and a Python worker cooperate through one PostgreSQL task queue; job postings are stored with source links, original text and version history, and scored by explainable rules. Single-user, local only; the demo uses synthetic postings.
+
 招聘信息会过期，JD 会更新，而“技能对得上”也不代表满足申请资格。SignalHub 把官方链接、JD 原文和历史版本存在本机，用可解释的规则筛选岗位，再跟踪收藏、投递进度和提醒。不配置 AI Key 也能完整使用主要功能。
 
 它面向本机单用户：默认只监听回环地址，带 Host 校验、CSRF 和 CSP。目前没有账号认证和多用户隔离，不要直接暴露到公网。V1.0 要求的连续 72 小时稳定性验证还没有完成。
 
-项目在 AI 辅助下完成。
+项目在 AI（Codex、Claude）辅助下完成，需求和取舍由我决定。
+
+**两个值得看的工程设计**
+- **Java 与 Python 通过 PostgreSQL 任务队列协作**：`FOR UPDATE SKIP LOCKED` 领取任务，15 分钟租约加 `attempts` 防止旧 Worker 覆盖新结果，最多重试 3 次，重放幂等。
+- **版本化的可解释评分**：岗位版本、档案、算法版本或企业核验版本任一变化，旧评分就不再展示，只重算变了的部分；评分明细逐项给出依据。
+
+**技术栈**：Java 21、Spring Boot 4.1、Python 3.12 Worker、PostgreSQL 17、Flyway（V1–V12）、Docker Compose。
 
 ## 跑一条合成 JD
 
@@ -24,7 +32,7 @@ python3.12 -m venv .venv
 
 ![合成数据工程实习的本地匹配详情](docs/demo-assets/matching.png)
 
-上图是合成“数据工程实习”岗位的实际运行结果：合成档案确认了 Python、SQL 和目标城市。JD 后来加了 Spark 加分项，生成 V2，旧分数随即隐藏；重新计算得到 **84.5/100**（界面上取整显示 85）。JD 没写 2027 年春季的到岗时间，所以“招聘资格”一栏仍是“信息不足”。评分只说明条件的匹配程度，不是录用概率，合成数据也不会被标成真实在招。
+**上图来自本机隔离的合成演示，岗位和档案都是项目自己写的虚构数据，不是真实招聘信息。** 它是合成“数据工程实习”岗位的实际运行结果：合成档案确认了 Python、SQL 和目标城市。JD 后来加了 Spark 加分项，生成 V2，旧分数随即隐藏；重新计算得到 **84.5/100**（界面上取整显示 85）。JD 没写 2027 年春季的到岗时间，所以“招聘资格”一栏仍是“信息不足”。评分只说明条件的匹配程度，不是录用概率，合成数据也不会被标成真实在招。
 
 ## 架构
 
