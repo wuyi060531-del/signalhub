@@ -11,4 +11,4 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/probe_smartrecruiters.py BoschGroup CN 3
+      - run: python3 scripts/probe_smartrecruiters.py BoschGroup CN 0

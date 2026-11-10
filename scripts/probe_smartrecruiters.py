@@ -42,7 +42,7 @@ def main():
     sample = int(sys.argv[3]) if len(sys.argv) > 3 else 3
     result = {'board': board, 'country_filter': country, 'fetched_at': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
     postings, offset, total = [], 0, None
-    for _ in range(10):
+    for _ in range(20):
         query = urllib.parse.urlencode({'destination': 'PUBLIC', 'limit': 100, 'offset': offset, 'country': country})
         status, body = get(f'{ROOT}{board}/postings?{query}')
         if status != 200:
@@ -74,6 +74,17 @@ def main():
     result['title_keyword_candidates'] = {k: sum(1 for p in postings if re.search(v, p.get('name', ''), re.I)) for k, v in keywords.items()}
     result['intern_postings'] = [{'title': p.get('name'), 'city': (p.get('location') or {}).get('city'),
                                   'releasedDate': p.get('releasedDate'), 'id': p.get('id')} for p in intern[:40]]
+    # 接口自带的全文检索（q）直接查实习，不依赖本地分页是否完整。
+    result['q_search'] = {}
+    for keyword in ('intern', '实习'):
+        status, body = get(f"{ROOT}{board}/postings?{urllib.parse.urlencode({'destination': 'PUBLIC', 'limit': 100, 'country': country, 'q': keyword})}")
+        if status != 200:
+            result['q_search'][keyword] = {'error': status}
+            continue
+        data = json.loads(body)
+        result['q_search'][keyword] = {'totalFound': data.get('totalFound'), 'postings': [
+            {'title': p.get('name'), 'city': (p.get('location') or {}).get('city'), 'type': (p.get('typeOfEmployment') or {}).get('id'),
+             'releasedDate': p.get('releasedDate')} for p in (data.get('content') or [])[:40]]}
     # 详情字段抽样：优先实习岗位，只记录字段是否存在，不保存正文。
     checks = []
     for p in (intern or postings)[:sample]:
