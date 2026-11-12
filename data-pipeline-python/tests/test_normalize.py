@@ -31,6 +31,19 @@ def test_unsafe_links_rejected():
     with pytest.raises(ValidationError): normalize(dict(kind='job',external_id='a',title='x',url='javascript:alert(1)'))
     assert canonical_url('https://example.com/a?utm_source=x&id=1#hi')=='https://example.com/a?id=1'
 
+# 纯空白 external_id 没有身份信息：若放行，不同岗位会共用同一个来源标识而被误当作同一岗位的不同版本。
+BLANK_IDS=['', ' ', '   ', '\t', '\n', '\r\n', '\u3000', '\u00a0', ' \t\n\u3000 ']
+
+@pytest.mark.parametrize('external_id',BLANK_IDS,ids=[repr(x) for x in BLANK_IDS])
+def test_blank_external_id_rejected_at_model_boundary(external_id):
+    with pytest.raises(ValidationError) as caught: normalize(dict(kind='job',external_id=external_id,title='实习',body='要求 Python'))
+    assert [e['loc'] for e in caught.value.errors()]==[('external_id',)]
+
+@pytest.mark.parametrize('external_id',['job1',' job1 ','a b','0','-','岗位\u3000一','a'*300])
+def test_non_blank_external_id_kept_exactly(external_id):
+    # 只拒绝纯空白；非空 ID 不做 strip 等规范化，否则已入库的来源标识会与新导入的对不上。
+    assert normalize(dict(kind='job',external_id=external_id,title='实习',body='要求 Python')).external_id==external_id
+
 def test_encoded_html_and_requirement_boundaries():
     job=normalize(dict(kind='job',external_id='html',title='Data Engineer',body='&lt;p&gt;Required: &lt;b&gt;Python&lt;/b&gt;, SQL&lt;/p&gt;&lt;p&gt;Spark preferred&lt;/p&gt;&lt;script&gt;bad()&lt;/script&gt;'))
     assert '<' not in job.body and 'bad()' not in job.body
