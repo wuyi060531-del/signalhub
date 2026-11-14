@@ -4,8 +4,22 @@ import time
 from urllib.parse import urlencode
 from .ashby import CITIES
 
+CITY_ALIASES = {**CITIES, 'chongqing': '重庆'}
+
 REGIONS = {'shanghai':'上海','beijing':'北京','jiangsu':'江苏','guangdong':'广东',
            'shandong':'山东','hunan':'湖南','zhejiang':'浙江','sichuan':'四川'}
+
+
+def city_key(value, country):
+    """Exact structured labels only; no substring or multi-location inference."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().casefold()
+    if country == 'CN':
+        value = CITY_ALIASES.get(value, value)
+        if value.endswith('市') and value[:-1] in CITY_ALIASES.values():
+            value = value[:-1]
+    return value or None
 
 
 def is_intern(job):
@@ -24,6 +38,15 @@ class SmartRecruitersAdapter:
         country=config.get('country')
         if country is not None and (not isinstance(country,str) or not re.fullmatch(r'[A-Za-z]{2}',country)):
             raise ValueError('country需为两位国家代码')
+        target_city = config.get('city')
+        if target_city is not None and (not isinstance(target_city, str) or
+                not target_city.strip() or len(target_city) > 100):
+            raise ValueError('city需为1–100字符非空文本')
+        city_country = country.upper() if country else None
+        target_key = city_key(target_city, city_country)
+        query_city = target_city.strip() if target_city is not None else None
+        if city_country == 'CN' and target_key in CITY_ALIASES.values():
+            query_city = next(k for k, v in CITY_ALIASES.items() if v == target_key).title()
         intern_only=config.get('intern_only',False)
         if not isinstance(intern_only,bool):raise ValueError('intern_only需为布尔值')
         keyword=config.get('q')
@@ -41,13 +64,18 @@ class SmartRecruitersAdapter:
             return fetcher.get(url,clean_headers)
         listings={}
         offset=0
+        expected_total=None
         for _ in range(20):
             query={'destination':'PUBLIC','limit':100,'offset':offset}
             if country:query['country']=country.lower()
+            if query_city:query['city']=query_city
             if keyword:query['q']=keyword
             response=get(root+'?'+urlencode(query))
             data=response.json();page=data['content'];total=data['totalFound']
             if type(total) is not int or total<0 or not isinstance(page,list):raise ValueError('分页响应格式错误')
+            if expected_total is None:expected_total=total
+            if total != expected_total or len(page)>100 or offset+len(page)>total:
+                raise ValueError('分页总数变化或超出声明边界，拒绝不完整快照')
             if total>2000:raise ValueError('超过2000条分页边界，请缩小来源国家范围')
             if data.get('offset',offset)!=offset:raise ValueError('服务端分页偏移不一致')
             if not page and offset<total:raise ValueError('未完成快照却返回空页')
@@ -72,6 +100,8 @@ class SmartRecruitersAdapter:
                 code=place.get('country')
                 code=code.upper() if isinstance(code,str) else None
                 if country and code!=country.upper():raise ValueError('列表国家过滤与详情不一致')
+                if target_key is not None and city_key(place.get('city'), city_country) != target_key:
+                    continue
                 city=place.get('city') or None;province=place.get('region') or None
                 if code=='CN':
                     city=CITIES.get(str(city).casefold(),city)
