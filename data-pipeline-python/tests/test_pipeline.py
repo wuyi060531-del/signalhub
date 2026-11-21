@@ -38,6 +38,31 @@ def test_invalid_records_retained_and_resume(db):
     assert scalar(db,'SELECT count(*) FROM raw_records')==3
     assert Pipeline(db).run(1,[RAW])['deduplicated']==1
 
+def test_blank_external_ids_are_rejected_not_merged_but_raw_is_kept(db):
+    job_a=dict(kind='job',external_id=' ',title='数据工程实习',body='2027届；本科；要求 Python SQL')
+    job_b=dict(kind='job',external_id='\u3000\t',title='Java 后端实习',body='2027届；本科；要求 Java Spring')
+    result=Pipeline(db).run(1,[job_a,RAW,job_b])
+    # 两条不同岗位都被拒绝，不会被当成同一岗位的 v1/v2；中间的合法记录不受影响。
+    assert result['state']=='partial' and result['collected']==3 and result['failed']==2 and result['parsed']==1
+    assert result['inserted']==1 and result['updated']==0
+    assert [(e['record_index'],e['details'][0]['field']) for e in result['errors']]==[(1,'external_id'),(3,'external_id')]
+    assert scalar(db,'SELECT count(*) FROM items')==1
+    assert scalar(db,"SELECT title FROM items")==RAW['title']
+    assert scalar(db,'SELECT count(*) FROM item_versions')==1
+    assert scalar(db,'SELECT count(*) FROM item_sources')==1
+    assert scalar(db,'SELECT count(*) FROM alerts')==0
+    # 审计：不合法的原始记录仍然原样进入 raw_records。
+    with db.connect() as c:
+        rows=c.execute(text("SELECT external_id,body->>'title' FROM raw_records ORDER BY id")).all()
+    assert rows==[(' ','数据工程实习'),('job1',RAW['title']),('\u3000\t','Java 后端实习')]
+
+def test_blank_external_id_with_distinct_urls_is_still_rejected(db):
+    records=[dict(kind='job',external_id=' ',title=t,body='要求 Python',url=u) for t,u in [('A 岗位','https://example.com/jobs/a'),('B 岗位','https://example.com/jobs/b')]]
+    result=Pipeline(db).run(1,records)
+    assert result['state']=='partial' and result['failed']==2 and result['parsed']==0
+    assert scalar(db,'SELECT count(*) FROM items')==0 and scalar(db,'SELECT count(*) FROM item_sources')==0
+    assert scalar(db,'SELECT count(*) FROM raw_records')==2
+
 def test_manual_import_links_saved_items_after_insert_update_duplicate_and_partial_failure(db):
     raw={**RAW,'title':'[合成测试] 数据工程实习','is_demo':True}
     p=Pipeline(db)
@@ -115,7 +140,6 @@ def test_crashed_task_recovered(db):
 
 def test_database_failure_does_not_commit_half_item(db,monkeypatch):
     p=Pipeline(db)
-    original=p.ingest_one
     from signalhub import pipeline
     execute=pipeline.execute
     def fail(conn,sql,**kwargs):
@@ -343,14 +367,14 @@ def test_transient_database_failure_retries_idempotently(db,monkeypatch):
     from sqlalchemy.exc import OperationalError
     import json
     with db.begin() as c:c.execute(text("INSERT INTO task_requests(task_type,source_id,payload) VALUES ('import',1,CAST(:p AS jsonb))"),{'p':json.dumps({'records':[RAW,{**RAW,'external_id':'job2','url':'https://example.com/job/2'}]})})
-    ingest=Pipeline.ingest_one
+    write_item=Pipeline._write_item
     broken=[True]
-    def flaky(self,source,raw):
-        if raw['external_id']=='job2' and broken[0]:
+    def flaky(self,source,record):
+        if record.external_id=='job2' and broken[0]:
             broken[0]=False
             raise OperationalError('synthetic',{},RuntimeError('temporary connection lost'))
-        return ingest(self,source,raw)
-    monkeypatch.setattr(Pipeline,'ingest_one',flaky)
+        return write_item(self,source,record)
+    monkeypatch.setattr(Pipeline,'_write_item',flaky)
     first=Worker(db).tick()
     assert first['retryable'] and first['inserted']==1
     assert scalar(db,'SELECT state FROM task_requests')=='pending'
@@ -365,7 +389,7 @@ def test_persistent_database_failure_stops_after_three_claims(db,monkeypatch):
     import json
     with db.begin() as c:c.execute(text("INSERT INTO task_requests(task_type,source_id,payload) VALUES ('import',1,CAST(:p AS jsonb))"),{'p':json.dumps({'records':[RAW]})})
     def broken(*a,**k):raise OperationalError('synthetic',{},RuntimeError('connection unavailable'))
-    monkeypatch.setattr(Pipeline,'ingest_one',broken)
+    monkeypatch.setattr(Pipeline,'_write_item',broken)
     for _ in range(3):assert Worker(db).tick()['retryable']
     assert Worker(db).tick() is None
     assert scalar(db,'SELECT state FROM task_requests')=='failed'

@@ -158,6 +158,15 @@ class Item(BaseModel):
             raise ValueError('资格复核必须保留原文证据')
         return self
 
+    @field_validator('external_id')
+    @classmethod
+    def external_id_not_blank(cls, value):
+        # 纯空白没有身份信息，不同岗位会共用同一来源标识而被误判为同一岗位的新版本。
+        # 只拒绝，不 strip：非空 ID 保持原样，避免改变已入库来源标识的匹配方式。
+        if not value.strip():
+            raise ValueError('external_id 不能为空或纯空白')
+        return value
+
     @field_validator('url')
     @classmethod
     def safe_link(cls, value):
