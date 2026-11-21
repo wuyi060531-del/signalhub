@@ -99,7 +99,7 @@ def main():
                         row = api(f'/tasks/{task}')
                         assert 'payload' not in row
                         if row['state'] in ('done', 'failed'):
-                            if expect_success:assert row['state'] == 'done', row['result']
+                            assert row['state'] == ('done' if expect_success else 'failed'), row['result']
                             return row['result']
                     raise RuntimeError('任务未在有界循环内完成')
                 first = import_record(record)
@@ -307,6 +307,25 @@ def main():
                 missing=client.get('/api/tasks/999999999')
                 assert missing.status_code==404
                 checks.append('按ID真实HTTP任务反馈、部分失败保留原文/成功前缀，修正同标识重提后幂等，无导入正文泄露')
+                baseline = api(f'/items/{item_id}')
+                variants = [{**record, 'body': f'[合成冲突变体 {i}] 要求 Python'} for i in (1, 2)]
+                with db.connect() as conn:
+                    alerts_before = execute(conn, "SELECT count(*) FROM alerts WHERE item_id=:id AND dedup_key LIKE 'change:%'", id=item_id).scalar_one()
+                for batch in (variants, variants, variants[::-1]):
+                    conflict = import_record(batch, expect_success=False)
+                    assert (conflict['state'], conflict['failed'], conflict['updated']) == ('partial', 2, 0)
+                    assert conflict['item_ids'] == [] and 'retryable' not in conflict
+                    assert [error['error'] for error in conflict['errors']] == ['BatchExternalIdConflict'] * 2
+                    assert [error['record_index'] for error in conflict['errors']] == [1, 2]
+                    detail = api(f'/items/{item_id}')
+                    assert detail['payload'] == baseline['payload'] and detail['versions'] == baseline['versions']
+                    with db.connect() as conn:
+                        raw_bodies = dict(execute(conn, '''
+                            SELECT id, body->>'body' FROM raw_records WHERE source_id=:source AND external_id=:key
+                        ''', source=source, key=record['external_id']).all())
+                        assert [raw_bodies[error['raw_id']] for error in conflict['errors']] == [row['body'] for row in batch]
+                        assert execute(conn, "SELECT count(*) FROM alerts WHERE item_id=:id AND dedup_key LIKE 'change:%'", id=item_id).scalar_one() == alerts_before
+                checks.append('同批冲突原样与倒序重放均保留原文、不新增版本和变化提醒，HTTP任务维持部分失败契约')
                 # 明确Mock：走HTTP→Java持久队列→Python→PG→Java详情，不调用真实模型。
                 os.environ['AI_PROVIDER'] = 'mock'
                 def mock_enrich():

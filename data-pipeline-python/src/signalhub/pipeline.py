@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError, InterfaceError
+from .models import Item
 from .normalize import normalize, content, stable_hash, canonical_url
 from .adapters import ADAPTERS
 from .http import Fetcher
@@ -16,6 +17,8 @@ from .diagnostics import failure_context, safe_stack, log_failure
 log = logging.getLogger(__name__)
 
 def quality_error(exc: Exception) -> list[dict[str, str]]:
+    if isinstance(exc, BatchExternalIdConflict):
+        return [{'field': 'external_id', 'message': '同批次的来源标识对应不同内容或有记录无法校验；该标识的记录已隔离，请核对原始记录后重提。'}]
     if isinstance(exc, ValidationError):
         return [{'field': '.'.join(map(str, issue['loc'])) or 'record', 'message': issue['msg']}
                 for issue in exc.errors(include_input=False, include_context=False, include_url=False)[:20]]
@@ -34,6 +37,19 @@ TASK_LEASE_SECONDS = 15 * 60
 
 class TaskLeaseLost(Exception):
     """The claimed attempt no longer owns the task."""
+
+
+class BatchExternalIdConflict(ValueError):
+    """The batch cannot choose a canonical item for this source identifier."""
+
+
+@dataclass(frozen=True)
+class PreparedRecord:
+    external_id: str
+    raw_id: int
+    item: Item
+    payload: dict[str, Any]
+    content_hash: str
 
 
 @dataclass(frozen=True)
@@ -75,6 +91,9 @@ class Pipeline:
             return dict(row)
 
     def ingest_one(self, source, raw):
+        return self._write_item(source, self._prepare_record(source, raw))
+
+    def _prepare_record(self, source, raw):
         external_id = str(raw.get('external_id','')) if isinstance(raw,dict) else ''
         original = raw.get('_raw',raw) if isinstance(raw,dict) else raw
         with self._write() as conn:
@@ -84,7 +103,11 @@ class Pipeline:
         if not isinstance(raw,dict): raise ValueError('每条记录必须是JSON对象')
         item = normalize({k:v for k,v in raw.items() if k != '_raw'})
         payload = content(item)
-        new_hash = stable_hash(payload)
+        return PreparedRecord(external_id, raw_id, item, payload, stable_hash(payload))
+
+    def _write_item(self, source, record: PreparedRecord):
+        external_id, raw_id = record.external_id, record.raw_id
+        item, payload, new_hash = record.item, record.payload, record.content_hash
         canonical = (f"demo:{source['id']}:" if item.is_demo else '') + item.kind + ':' + (canonical_url(item.url) if item.url else f"source:{source['id']}:{external_id}")
         with self._write() as conn:
             # 同一来源标识和同一 canonical URL 都串行化，避免并发创建/版本号竞争。
@@ -159,6 +182,21 @@ class Pipeline:
         stage = 'fetch' if records is None else 'ingest'
         traces = []
         owned_fetcher = None
+
+        def record_failure(exc, index, *, raw_id=None):
+            counters['failed'] += 1
+            if isinstance(exc, (OperationalError, InterfaceError)):
+                raise exc
+            context = {**failure_context(exc, stage=stage), 'record_index': index}
+            issue = {**context, 'details': quality_error(exc)}
+            if raw_id is not None:
+                issue['raw_id'] = raw_id
+            if isinstance(exc, ValidationError):
+                issue['fields'] = [{'field': str(x['loc']), 'reason': x['type']} for x in exc.errors(include_input=False)]
+            if len(traces) < 3:
+                traces.append({**context, 'stack': safe_stack(exc.__traceback__)})
+            errors.append(issue)
+
         try:
             if records is None:
                 if not source['enabled']: raise ValueError('数据源已禁用')
@@ -170,10 +208,41 @@ class Pipeline:
                     owned_fetcher = fetcher = Fetcher()
                 records,response,not_modified = ADAPTERS[source['adapter']]().fetch(source['config'],fetcher,headers)
             stage = 'ingest'
-            for raw in records:
-                counters['collected'] += 1
+            prepared = []
+            first_hash = {}
+            conflicts = set()
+            scan_error = None
+            try:
+                for index, raw in enumerate(records, 1):
+                    counters['collected'] += 1
+                    try:
+                        record = self._prepare_record(source, raw)
+                    except TaskLeaseLost:
+                        raise
+                    except Exception as exc:
+                        external_id = raw.get('external_id') if isinstance(raw, dict) else None
+                        if isinstance(external_id, str) and external_id.strip():
+                            conflicts.add(external_id)
+                        record_failure(exc, index)
+                    else:
+                        if first_hash.setdefault(record.external_id, record.content_hash) != record.content_hash:
+                            conflicts.add(record.external_id)
+                        prepared.append((index, record))
+            except TaskLeaseLost:
+                raise
+            except Exception as exc:
+                # A lazy adapter can fail after yielding a prefix. Keep the existing
+                # failed-run semantics while applying the non-conflicting prefix.
+                scan_error = exc
+
+            # Archive originals on arrival, then write entities only after checking
+            # all observed contenders. Keep just normalized records for this pass.
+            for index, record in prepared:
+                if record.external_id in conflicts:
+                    record_failure(BatchExternalIdConflict(), index, raw_id=record.raw_id)
+                    continue
                 try:
-                    result,item_id = self.ingest_one(source,raw)
+                    result,item_id = self._write_item(source,record)
                     counters['parsed'] += 1
                     counters[result] += 1
                     if import_items is not None:
@@ -181,16 +250,9 @@ class Pipeline:
                 except TaskLeaseLost:
                     raise
                 except Exception as exc:
-                    counters['failed'] += 1
-                    if isinstance(exc,(OperationalError,InterfaceError)):raise
-                    issue = {**failure_context(exc, stage=stage), 'record_index': counters['collected'],
-                             'details': quality_error(exc)}
-                    if len(traces) < 3:
-                        traces.append({**failure_context(exc, stage=stage), 'record_index': counters['collected'],
-                                       'stack': safe_stack(exc.__traceback__)})
-                    if hasattr(exc,'errors'):
-                        issue['fields'] = [{'field':str(x['loc']),'reason':x['type']} for x in exc.errors(include_input=False)]
-                    errors.append(issue)
+                    record_failure(exc, index)
+            if scan_error is not None:
+                raise scan_error
             if errors: state = 'partial'
             if not_modified: state = 'not_modified'
         except TaskLeaseLost:
@@ -205,6 +267,7 @@ class Pipeline:
             # Some adapters fetch lazily while the records are being consumed.
             if owned_fetcher is not None:
                 owned_fetcher.client.close()
+        errors.sort(key=lambda issue: issue.get('record_index', counters['collected'] + 1))
         with self._write() as conn:
             execute(conn,'''UPDATE collection_runs SET state=:state,ended_at=now(),collected=:collected,parsed=:parsed,failed=:failed,
                 deduplicated=:deduplicated,updated=:updated,inserted=:inserted,errors=CAST(:errors AS jsonb) WHERE id=:id''',**counters,state=state,errors=dump(errors),id=run_id)

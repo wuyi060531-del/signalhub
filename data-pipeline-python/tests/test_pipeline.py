@@ -115,7 +115,6 @@ def test_crashed_task_recovered(db):
 
 def test_database_failure_does_not_commit_half_item(db,monkeypatch):
     p=Pipeline(db)
-    original=p.ingest_one
     from signalhub import pipeline
     execute=pipeline.execute
     def fail(conn,sql,**kwargs):
@@ -343,14 +342,14 @@ def test_transient_database_failure_retries_idempotently(db,monkeypatch):
     from sqlalchemy.exc import OperationalError
     import json
     with db.begin() as c:c.execute(text("INSERT INTO task_requests(task_type,source_id,payload) VALUES ('import',1,CAST(:p AS jsonb))"),{'p':json.dumps({'records':[RAW,{**RAW,'external_id':'job2','url':'https://example.com/job/2'}]})})
-    ingest=Pipeline.ingest_one
+    write_item=Pipeline._write_item
     broken=[True]
-    def flaky(self,source,raw):
-        if raw['external_id']=='job2' and broken[0]:
+    def flaky(self,source,record):
+        if record.external_id=='job2' and broken[0]:
             broken[0]=False
             raise OperationalError('synthetic',{},RuntimeError('temporary connection lost'))
-        return ingest(self,source,raw)
-    monkeypatch.setattr(Pipeline,'ingest_one',flaky)
+        return write_item(self,source,record)
+    monkeypatch.setattr(Pipeline,'_write_item',flaky)
     first=Worker(db).tick()
     assert first['retryable'] and first['inserted']==1
     assert scalar(db,'SELECT state FROM task_requests')=='pending'
@@ -365,7 +364,7 @@ def test_persistent_database_failure_stops_after_three_claims(db,monkeypatch):
     import json
     with db.begin() as c:c.execute(text("INSERT INTO task_requests(task_type,source_id,payload) VALUES ('import',1,CAST(:p AS jsonb))"),{'p':json.dumps({'records':[RAW]})})
     def broken(*a,**k):raise OperationalError('synthetic',{},RuntimeError('connection unavailable'))
-    monkeypatch.setattr(Pipeline,'ingest_one',broken)
+    monkeypatch.setattr(Pipeline,'_write_item',broken)
     for _ in range(3):assert Worker(db).tick()['retryable']
     assert Worker(db).tick() is None
     assert scalar(db,'SELECT state FROM task_requests')=='failed'
